@@ -10,51 +10,68 @@ CORS(app)
 API_KEY = "AhmadRDX"
 
 def get_snapchat_video(url):
+    # Session use karne se Snapchat ko dhoka dena asan hota hai
+    session = requests.Session()
+    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
+        "DNT": "1",
+        "Upgrade-Insecure-Requests": "1",
+        "Connection": "keep-alive",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1"
     }
 
     try:
-        # 🧪 Step 1: Page load karna
-        response = requests.get(url, headers=headers, timeout=15)
-        if response.status_code != 200:
-            return {"status": False, "error": f"Snapchat blocked access: {response.status_code}"}
-
-        html_content = response.text
-
-        # 🧪 Step 2: JSON data nikalna (Snapchat video details yahan chupa ke rakhta hai)
-        # Hum '__NEXT_DATA__' script tag ko target kar rahe hain
-        script_data = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html_content)
+        # 🧪 Step 1: Request bhejna
+        response = session.get(url, headers=headers, timeout=15)
         
-        if script_data:
-            json_data = json.loads(script_data.group(1))
-            
-            # Spotlight video ka direct link nikalne ka logic
-            # Snapchat ke naye structure ke mutabiq link yahan hota hai:
-            try:
-                # Alag alag paths check karte hain taake error na aaye
-                props = json_data.get('props', {}).get('pageProps', {})
-                spotlight_data = props.get('spotlightVideo', {}) or props.get('story', {})
-                
-                video_url = spotlight_data.get('contentUrl') or spotlight_data.get('streamingUrl')
-                
-                if not video_url:
-                    # Backup Regex agar JSON fail ho jaye
-                    video_url = re.search(r'"contentUrl":"(.*?)"', html_content).group(1)
+        # Agar Snapchat 404 de raha hai, toh iska matlab IP block hai
+        if response.status_code == 404:
+            return {"status": False, "error": "Snapchat blocked this IP (404). Render ka server block ho gaya hai."}
+        
+        if response.status_code != 200:
+            return {"status": False, "error": f"Snapchat Error: {response.status_code}"}
 
-                return {
-                    "status": True,
-                    "engine": "RDX Snap Custom",
-                    "title": props.get('title', 'Snapchat Spotlight'),
-                    "url": video_url.replace('\\u002F', '/'), # URL clean karna
-                    "thumbnail": props.get('thumbnailUrl')
-                }
+        html = response.text
+        
+        # 🧪 Step 2: Spotlight Video nikalne ka naya tareeka
+        # Kabhi kabhi JSON script tag mein data hota hai
+        match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html)
+        
+        if match:
+            data = json.loads(match.group(1))
+            # Path: props -> pageProps -> spotlightVideo -> contentUrl
+            try:
+                # Alag alag patterns check karna
+                page_props = data.get('props', {}).get('pageProps', {})
+                video_data = page_props.get('spotlightVideo') or page_props.get('story')
+                
+                video_url = video_data.get('contentUrl') or video_data.get('streamingUrl')
+                
+                if video_url:
+                    return {
+                        "status": True,
+                        "engine": "RDX Snap-Stealth",
+                        "url": video_url.replace('\\u002F', '/')
+                    }
             except:
-                return {"status": False, "error": "Video link extraction failed within JSON."}
-        else:
-            return {"status": False, "error": "Metadata not found. Shayad link galat hai?"}
+                pass
+
+        # 🧪 Step 3: Agar JSON fail ho jaye toh Meta Tags se nikalna
+        meta_match = re.search(r'<meta property="og:video" content="(.*?)"', html)
+        if meta_match:
+            return {
+                "status": True,
+                "engine": "RDX Meta-Extractor",
+                "url": meta_match.group(1)
+            }
+
+        return {"status": False, "error": "Video link nahi mila. Shayad link expired hai."}
 
     except Exception as e:
         return {"status": False, "error": str(e)}
